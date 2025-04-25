@@ -510,6 +510,13 @@ async function handleClaudeButtonClick() {
     // Create an enhanced prompt with context
     const enhancedPrompt = createEnhancedPrompt(question, pageContext);
     
+    // Show notification based on whether screenshot was captured
+    if (pageContext && pageContext.screenshotData) {
+      showNotification('📸 Using page screenshot to help Claude understand context');
+    } else {
+      showNotification('Using text context to help Claude understand the form');
+    }
+    
     // Send the enhanced question to Claude via background script
     const response = await sendMessageToBackground({
       action: 'askClaude',

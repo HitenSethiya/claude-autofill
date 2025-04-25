@@ -53,12 +53,18 @@ async function captureScreenshot() {
       throw new Error('No active tab found');
     }
     
-    // Capture screenshot of the active tab
-    const screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
-    
-    return { screenshotData: screenshot };
+    try {
+      // Attempt to capture screenshot of the active tab
+      const screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+      return { screenshotData: screenshot };
+    } catch (captureError) {
+      console.error('Screenshot capture failed:', captureError);
+      return { 
+        error: captureError.message || 'Screenshot capture failed. Make sure the extension has proper permissions.' 
+      };
+    }
   } catch (error) {
-    console.error('Error capturing screenshot:', error);
+    console.error('Error in screenshot capture process:', error);
     return { error: error.message };
   }
 }

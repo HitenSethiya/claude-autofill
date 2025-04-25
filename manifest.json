@@ -17,7 +17,8 @@
     }
   ],
   "host_permissions": [
-    "https://claude.ai/*"
+    "https://claude.ai/*",
+    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup.html",

@@ -2,32 +2,27 @@
 
 /**
  * Captures the current webpage context using various methods
- * @returns {Promise<string>} The captured context as text
+ * @returns {Promise<Object>} Object containing text context and optional screenshot data
  */
 async function capturePageContext() {
   try {
-    // Capture basic page information
-    const basicInfo = `# ${document.title}\nURL: ${window.location.href}\n\n`;
+    // Capture basic page information and form context
+    const textContext = `# ${document.title}\nURL: ${window.location.href}\n\n` + extractFormLabelsAndContext();
     
-    // Try to take a screenshot of the current page
-    try {
-      const screenshotData = await captureScreenshot();
-      
-      // If we got a screenshot, return it with basic info
-      if (screenshotData) {
-        return {
-          textContext: basicInfo + extractFormLabelsAndContext(),
-          screenshotData: screenshotData
-        };
+    // Try to take a screenshot of the current page if enabled in config
+    let screenshotData = null;
+    if (CONTEXT_CONFIG.captureScreenshot) {
+      try {
+        screenshotData = await captureScreenshot();
+      } catch (screenshotError) {
+        console.error('Error capturing screenshot:', screenshotError);
       }
-    } catch (screenshotError) {
-      console.error('Error capturing screenshot:', screenshotError);
     }
     
-    // Fallback to just text capture if screenshot fails
+    // When returning, include both text context and the screenshot data (if available)
     return {
-      textContext: basicInfo + captureDirectPageContent(),
-      screenshotData: null
+      textContext: textContext,
+      screenshotData: screenshotData
     };
   } catch (error) {
     console.error('Error capturing page context:', error);
@@ -41,26 +36,34 @@ async function capturePageContext() {
 
 /**
  * Captures a screenshot of the current tab
- * @returns {Promise<string>} Base64 encoded screenshot data
+ * @returns {Promise<string|null>} Base64 encoded screenshot data or null if capture fails
  */
 async function captureScreenshot() {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     // Send message to the background script to capture the screenshot
     chrome.runtime.sendMessage(
       { action: 'captureScreenshot' },
       response => {
         if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
+          console.warn('Screenshot capture messaging error:', chrome.runtime.lastError);
+          resolve(null); // Resolve with null to continue without screenshot
           return;
         }
         
         if (response && response.screenshotData) {
           resolve(response.screenshotData);
         } else {
-          reject(new Error('Failed to capture screenshot'));
+          console.warn('Screenshot capture failed or returned no data');
+          resolve(null);
         }
       }
     );
+    
+    // Set a timeout in case the message response never comes
+    setTimeout(() => {
+      console.warn('Screenshot capture timed out');
+      resolve(null);
+    }, 5000);
   });
 }
 
@@ -371,7 +374,7 @@ function createEnhancedPrompt(question, pageContext) {
   let prompt = `I need help filling out a form field. I'll provide context from the current webpage and my specific question.`;
   
   // Add screenshot if available
-  if (pageContext.screenshotData) {
+  if (pageContext && pageContext.screenshotData) {
     prompt += `\n\n## Screenshot of Current Page:
 <image>
 ${pageContext.screenshotData}
@@ -380,13 +383,13 @@ ${pageContext.screenshotData}
   
   // Add text context
   prompt += `\n\n## Current Webpage Context:
-${pageContext.textContext || "No text context available from the current page."}
+${pageContext && pageContext.textContext ? pageContext.textContext : "No text context available from the current page."}
 
 ## My Question:
 ${question}
 
 ## Instructions:
-1. Look at the screenshot and webpage context to understand what I'm filling out.
+1. ${pageContext && pageContext.screenshotData ? "Look at the screenshot and" : "Review the"} webpage context to understand what I'm filling out.
 2. Provide a direct, focused answer to my question based on the context.
 3. IMPORTANT: Answer ONLY the question without any introductions, explanations, or conclusions.
 4. Do not include phrases like "Based on the context" or "According to the webpage".
