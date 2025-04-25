@@ -1,0 +1,10 @@
+/* This is a placeholder for the SVG icon file */
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="64" cy="64" r="60" fill="white" stroke="#6352d4" stroke-width="8"/>
+  <rect x="44" y="48" width="40" height="32" rx="6" fill="#6352d4"/>
+  <rect x="48" y="52" width="32" height="24" rx="3" fill="white"/>
+  <circle cx="64" cy="36" r="6" fill="#6352d4"/>
+  <circle cx="64" cy="92" r="6" fill="#6352d4"/>
+  <circle cx="36" cy="64" r="6" fill="#6352d4"/>
+  <circle cx="92" cy="64" r="6" fill="#6352d4"/>
+</svg>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Claude Form Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Claude Form Assistant</h1>
+    
+    <div id="login-status">
+      <div id="not-logged-in" class="status-message">
+        <p>Please sign in to Claude.ai to use this extension</p>
+        <button id="open-claude">Open Claude.ai</button>
+      </div>
+      <div id="logged-in" class="status-message hidden">
+        <p>You're signed in to Claude.ai</p>
+        <span id="username"></span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h2>Settings</h2>
+      
+      <div class="setting">
+        <label for="project-select">Default Claude Conversation:</label>
+        <select id="project-select">
+          <option value="loading">Loading conversations...</option>
+        </select>
+        <button id="refresh-projects" class="icon-button" title="Refresh projects list">↻</button>
+      </div>
+
+      <div class="setting">
+        <label for="auto-detect">Auto-detect form questions:</label>
+        <input type="checkbox" id="auto-detect" checked>
+      </div>
+    </div>
+
+    <div class="instructions">
+      <h2>How to use</h2>
+      <ol>
+        <li>Click on any form field</li>
+        <li>Click the Claude button that appears</li>
+        <li>Claude will detect the question or prompt you to enter one</li>
+        <li>The answer will be inserted into the form field</li>
+      </ol>
+    </div>
+
+    <div class="footer">
+      <button id="save-settings">Save Settings</button>
+      <div id="status-message"></div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
