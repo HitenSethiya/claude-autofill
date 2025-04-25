@@ -94,8 +94,13 @@ function init() {
   // Handle iframe content if present
   handleIframes();
   
-  // Add document-level event listeners for focus events
+  // Add document-level event listeners for focus and interaction events
   document.addEventListener('focusin', handleGlobalFocus, true);
+  document.addEventListener('click', handleGlobalClick, true);
+  document.addEventListener('mousedown', handleGlobalMousedown, true);
+  
+  // Additional initialization for complex web applications
+  setupAdvancedEventCapturing();
 }
 
 function retryInitialization() {
@@ -163,6 +168,85 @@ function handleGlobalFocus(event) {
   if (FORM_ELEMENTS.some(selector => event.target.matches(selector))) {
     handleElementFocus(event);
   }
+}
+
+function handleGlobalClick(event) {
+  // Catch click events on form elements to ensure they're properly tracked
+  if (FORM_ELEMENTS.some(selector => event.target.matches(selector))) {
+    // Set this as the active element
+    activeElement = event.target;
+    // Position the Claude button near the clicked element
+    positionClaudeButton(activeElement);
+  }
+}
+
+function handleGlobalMousedown(event) {
+  // Catch mousedown events which often precede focus
+  // This is important for custom input components that don't use standard focus events
+  if (FORM_ELEMENTS.some(selector => event.target.matches(selector))) {
+    // Set as pre-active element
+    const potentialActiveElement = event.target;
+    
+    // Use a short timeout to let the browser complete its focus behavior
+    setTimeout(() => {
+      // If no other element took focus, consider this our active element
+      if (document.activeElement === potentialActiveElement || 
+          document.activeElement === document.body) {
+        activeElement = potentialActiveElement;
+        positionClaudeButton(activeElement);
+      }
+    }, 50);
+  }
+}
+
+function setupAdvancedEventCapturing() {
+  // This function sets up additional mechanisms to detect form fields in complex web apps
+  
+  // 1. Use MutationObserver to detect focus styling changes
+  const focusStyleObserver = new MutationObserver(mutations => {
+    mutations.forEach(mutation => {
+      if (mutation.type === 'attributes' && 
+          (mutation.attributeName === 'class' || mutation.attributeName === 'style')) {
+        const element = mutation.target;
+        
+        // Check if this element looks like it received focus (heuristic)
+        const computedStyle = window.getComputedStyle(element);
+        const hasFocusIndicators = 
+          computedStyle.outline.includes('rgb') || 
+          computedStyle.boxShadow.includes('rgb') ||
+          element.classList.contains('focused') ||
+          element.classList.contains('active') ||
+          element.hasAttribute('data-focused') ||
+          element.hasAttribute('aria-selected');
+        
+        // If it looks focused and is a form element, track it
+        if (hasFocusIndicators && FORM_ELEMENTS.some(selector => element.matches(selector))) {
+          activeElement = element;
+          positionClaudeButton(activeElement);
+        }
+      }
+    });
+  });
+  
+  // Observe the document for class and style changes
+  focusStyleObserver.observe(document.body, {
+    attributes: true,
+    attributeFilter: ['class', 'style'],
+    subtree: true
+  });
+  
+  // 2. Periodically check for active form elements that we might have missed
+  setInterval(() => {
+    // If the document.activeElement is a form element but not our activeElement
+    if (document.activeElement !== document.body && 
+        FORM_ELEMENTS.some(selector => document.activeElement.matches(selector)) &&
+        activeElement !== document.activeElement) {
+      
+      // Update our tracking
+      activeElement = document.activeElement;
+      positionClaudeButton(activeElement);
+    }
+  }, 1000); // Check every second
 }
 
 function addFormElementListeners() {
@@ -254,8 +338,21 @@ function createClaudeButton() {
 function handleElementFocus(event) {
   activeElement = event.target;
   
+  // Ensure the element is truly active by setting focus
+  if (activeElement !== document.activeElement) {
+    activeElement.focus();
+  }
+  
   // Position the Claude button near the active element
   positionClaudeButton(activeElement);
+  
+  // Make sure the element maintains focus
+  if (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || 
+      activeElement.getAttribute('contenteditable') === 'true') {
+    // For some frameworks, we need to trigger focus events manually
+    const focusEvent = new Event('focus', { bubbles: true });
+    activeElement.dispatchEvent(focusEvent);
+  }
 }
 
 function handleElementBlur(event) {
@@ -355,6 +452,23 @@ async function handleClaudeButtonClick() {
     spinner.classList.remove('hidden');
     claudeButton.title = 'Click to open conversation in Claude';
     
+    // Ensure the active element is properly focused before proceeding
+    activeElement.focus();
+    
+    // For certain frameworks, we need to explicitly click the element first
+    // This helps with activating the form field in complex web applications
+    if (activeElement.classList.contains('form-control') || 
+        activeElement.hasAttribute('data-component') ||
+        activeElement.closest('.ProseMirror, .ql-editor, .CodeMirror, [data-slate-editor="true"]')) {
+      activeElement.click();
+      
+      // Give the application a moment to respond to the click
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Ensure focus is maintained
+      activeElement.focus();
+    }
+    
     // Get settings
     const settings = await chrome.storage.sync.get(['defaultProject', 'autoDetect']);
     
@@ -394,11 +508,22 @@ async function handleClaudeButtonClick() {
         currentConversationUrl = response.chatUrl;
       }
       
-      // Insert the answer into the active element
-      insertTextIntoElement(activeElement, response.answer);
-      
-      // Show success notification
-      showNotification('Claude has filled the field successfully!');
+      // Make sure the element is still active and in the DOM
+      if (document.body.contains(activeElement)) {
+        // Ensure active element is focused again before inserting text
+        activeElement.focus();
+        
+        // Small delay to ensure focus is complete
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Insert the answer into the active element
+        insertTextIntoElement(activeElement, response.answer);
+        
+        // Show success notification
+        showNotification('Claude has filled the field successfully!');
+      } else {
+        showNotification('Error: The form field is no longer available');
+      }
     } else {
       showNotification('Error getting response from Claude. Please try again.');
     }
@@ -538,37 +663,60 @@ async function promptForQuestion() {
 function insertTextIntoElement(element, text) {
   if (!element) return;
   
-  // Handle different types of elements
-  if (element.tagName === 'TEXTAREA' || 
-      (element.tagName === 'INPUT' && element.type === 'text')) {
-    // For textarea and text inputs
-    element.value = text;
+  // Make sure the element is active and focused first
+  element.focus();
+  
+  // Give the browser a moment to properly focus the element
+  setTimeout(() => {
+    // Handle different types of elements
+    if (element.tagName === 'TEXTAREA' || 
+        (element.tagName === 'INPUT' && element.type === 'text')) {
+      // For textarea and text inputs
+      element.value = text;
+      
+      // Trigger both input and change events to notify all listeners
+      const inputEvent = new Event('input', { bubbles: true, composed: true });
+      element.dispatchEvent(inputEvent);
+      
+      const changeEvent = new Event('change', { bubbles: true });
+      element.dispatchEvent(changeEvent);
+      
+      // Trigger a keyup event as well for frameworks that listen to that
+      const keyupEvent = new KeyboardEvent('keyup', { bubbles: true });
+      element.dispatchEvent(keyupEvent);
+      
+    } else if (element.getAttribute('contenteditable') === 'true') {
+      // For contenteditable elements
+      element.innerHTML = text;
+      
+      // Trigger input event
+      const inputEvent = new Event('input', { bubbles: true, composed: true });
+      element.dispatchEvent(inputEvent);
+      
+      // Set cursor position to end
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
     
-    // Trigger input event to notify any listeners
-    const inputEvent = new Event('input', { bubbles: true });
-    element.dispatchEvent(inputEvent);
-    
-    // Focus the element
-    element.focus();
-  } else if (element.getAttribute('contenteditable') === 'true') {
-    // For contenteditable elements
-    element.innerHTML = text;
-    
-    // Trigger input event
-    const inputEvent = new Event('input', { bubbles: true });
-    element.dispatchEvent(inputEvent);
-    
-    // Focus and place cursor at the end
-    element.focus();
-    
-    // Set cursor position to end
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    range.collapse(false);
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
+    // For elements with specific classes or attributes (to handle different frameworks)
+    if (element.classList.contains('form-control') || 
+        element.hasAttribute('data-component') ||
+        element.hasAttribute('role') ||
+        element.closest('.ProseMirror, .ql-editor, .CodeMirror, [data-slate-editor="true"]')) {
+      
+      // Additional framework-specific event simulation
+      // This helps with React, Angular, etc.
+      const blurEvent = new Event('blur', { bubbles: true });
+      element.dispatchEvent(blurEvent);
+      
+      // Focus again to make sure the element is still active
+      element.focus();
+    }
+  }, 50); // Small delay to ensure focus is complete
 }
 
 function showNotification(message) {
