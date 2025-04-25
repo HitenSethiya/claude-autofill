@@ -7,7 +7,8 @@
     "activeTab",
     "storage",
     "scripting",
-    "contextMenus"
+    "contextMenus",
+    "tabs"
   ],
   "web_accessible_resources": [
     {

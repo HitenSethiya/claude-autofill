@@ -2,9 +2,8 @@
 
 // Configuration for context capture
 const CONTEXT_CONFIG = {
-  maxPageContentLength: 50000, // Maximum characters of page content to send
-  r_jina_api: "https://r.jina.ai/api",
-  summaryMaxLength: 2000, // Max length for page summaries
+  maxPageContentLength: 20000, // Maximum characters of page content to send
+  captureScreenshot: true, // Whether to capture screenshots
 };
 const FORM_ELEMENTS = [
   'input[type="text"]', 

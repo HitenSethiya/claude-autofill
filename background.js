@@ -37,8 +37,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log(`Received message from ${sender.tab ? 'content script' : 'popup'}:`, request);
       askClaude(request.question, request.projectId, request.conversationTitle).then(sendResponse);
       return true;
+      
+    case 'captureScreenshot':
+      captureScreenshot().then(sendResponse);
+      return true; // Indicates async response
   }
 });
+
+// Capture a screenshot of the current active tab
+async function captureScreenshot() {
+  try {
+    // Get the current active tab
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs.length === 0) {
+      throw new Error('No active tab found');
+    }
+    
+    // Capture screenshot of the active tab
+    const screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+    
+    return { screenshotData: screenshot };
+  } catch (error) {
+    console.error('Error capturing screenshot:', error);
+    return { error: error.message };
+  }
+}
 
 // Check if the user is logged in to Claude.ai
 async function checkLoginStatus() {
@@ -247,6 +270,38 @@ async function createConversation(orgId, projId, name = null) {
 async function sendMessage(orgId, conversationId, message) {
   const url = `${CLAUDE_API.BASE_URL}${CLAUDE_API.SEND_MESSAGE.replace().replace('{orgId}', orgId).replace('{chatId}', conversationId)}`;
   console.log("sending message on url", url);
+  
+  // Check if the message contains an image tag (screenshot)
+  const hasImage = message.includes("<image>");
+  let attachments = [];
+  
+  if (hasImage) {
+    // Extract the base64 image data
+    const imageMatch = message.match(/<image>(.*?)<\/image>/s);
+    if (imageMatch && imageMatch[1]) {
+      const base64Data = imageMatch[1].trim();
+      
+      // Create an attachment for the image
+      attachments = [{
+        file_name: "screenshot.png",
+        file_type: "image/png",
+        file_size: Math.ceil(base64Data.length * 0.75), // Approximate size in bytes
+        extracted_content: "",
+        file_id: crypto.randomUUID(),
+        media_type: "image",
+        width: 1200, // Default width
+        height: 800, // Default height
+        display_width: 1200,
+        display_height: 800,
+        data: base64Data
+      }];
+      
+      // Remove the image tag from the message
+      message = message.replace(/<image>.*?<\/image>/s, "");
+    }
+  }
+  
+  // Send the message to Claude
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -270,9 +325,8 @@ async function sendMessage(orgId, conversationId, message) {
         }
       ],
       "locale": "en-US",
-      "tools": [
-      ],
-      "attachments": [],
+      "tools": [],
+      "attachments": hasImage ? attachments : [],
       "files": [],
       "sync_sources": [],
       "rendering_mode": "messages"

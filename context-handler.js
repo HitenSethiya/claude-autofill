@@ -6,100 +6,153 @@
  */
 async function capturePageContext() {
   try {
-    // Check if this is a public webpage that we can access
-    if (isPublicWebpage()) {
-      // Try r.jina.ai API first for public pages
-      try {
-        const jinaContext = await captureWithJina();
-        if (jinaContext && jinaContext.length > 100) {
-          return jinaContext;
-        }
-      } catch (jinaError) {
-        console.log('Could not use r.jina.ai, falling back to direct page scraping', jinaError);
+    // Capture basic page information
+    const basicInfo = `# ${document.title}\nURL: ${window.location.href}\n\n`;
+    
+    // Try to take a screenshot of the current page
+    try {
+      const screenshotData = await captureScreenshot();
+      
+      // If we got a screenshot, return it with basic info
+      if (screenshotData) {
+        return {
+          textContext: basicInfo + extractFormLabelsAndContext(),
+          screenshotData: screenshotData
+        };
       }
+    } catch (screenshotError) {
+      console.error('Error capturing screenshot:', screenshotError);
     }
     
-    // Fallback to direct page scraping
-    return captureDirectPageContent();
+    // Fallback to just text capture if screenshot fails
+    return {
+      textContext: basicInfo + captureDirectPageContent(),
+      screenshotData: null
+    };
   } catch (error) {
     console.error('Error capturing page context:', error);
-    return ''; // Return empty string if context capture fails
+    // Return minimal context if everything fails
+    return {
+      textContext: `# ${document.title}\nURL: ${window.location.href}`,
+      screenshotData: null
+    };
   }
 }
 
 /**
- * Determines if the current webpage is likely public (not behind auth)
- * @returns {boolean} True if the page is likely public
+ * Captures a screenshot of the current tab
+ * @returns {Promise<string>} Base64 encoded screenshot data
  */
-function isPublicWebpage() {
-  // Simple heuristic: if the URL doesn't contain private indicators and isn't a file or localhost
-  const url = window.location.href;
-  
-  // Check for private/local indicators
-  const privateIndicators = [
-    'localhost',
-    '127.0.0.1',
-    'file://',
-    'chrome://',
-    'chrome-extension://',
-    'admin',
-    'dashboard',
-    'account',
-    'profile',
-    'settings',
-    'internal',
-    'signin',
-    'login',
-    'auth',
-    'portal'
-  ];
-  
-  // If any private indicators are in the URL, consider it non-public
-  return !privateIndicators.some(indicator => url.includes(indicator));
+async function captureScreenshot() {
+  return new Promise((resolve, reject) => {
+    // Send message to the background script to capture the screenshot
+    chrome.runtime.sendMessage(
+      { action: 'captureScreenshot' },
+      response => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        
+        if (response && response.screenshotData) {
+          resolve(response.screenshotData);
+        } else {
+          reject(new Error('Failed to capture screenshot'));
+        }
+      }
+    );
+  });
 }
 
 /**
- * Captures page content using r.jina.ai's API
- * @returns {Promise<string>} Markdown representation of the page
+ * Extracts form labels and relevant context around the active element
+ * @returns {string} Text description of form context
  */
-async function captureWithJina() {
+function extractFormLabelsAndContext() {
   try {
-    // Get the current URL
-    const url = window.location.href;
+    let contextText = "## Form Context\n";
     
-    // Make the API request to r.jina.ai
-    const response = await fetch(`${CONTEXT_CONFIG.r_jina_api}/reader`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: url,
-        format: 'markdown', // Request markdown format
-        include_images: false // Skip images to reduce response size
-      })
-    });
+    // Look for the form containing the active element
+    const formElement = activeElement ? activeElement.closest('form') : null;
     
-    if (!response.ok) {
-      throw new Error(`r.jina.ai API responded with status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    // Check if we have markdown content
-    if (data && data.markdown) {
-      // Truncate if too long
-      if (data.markdown.length > CONTEXT_CONFIG.maxPageContentLength) {
-        return data.markdown.substring(0, CONTEXT_CONFIG.maxPageContentLength) + 
-               "\n\n[Content truncated due to length]";
+    if (formElement) {
+      // Get form title or name if available
+      const formTitle = formElement.getAttribute('aria-label') || 
+                        formElement.getAttribute('name') || 
+                        formElement.getAttribute('id') || 
+                        'Form';
+      
+      contextText += `Form: ${formTitle}\n\n`;
+      
+      // Get all labels in the form
+      const labels = formElement.querySelectorAll('label, .form-label, .label');
+      
+      if (labels.length > 0) {
+        contextText += "Form fields:\n";
+        labels.forEach(label => {
+          const labelText = label.textContent.trim();
+          if (labelText) {
+            contextText += `- ${labelText}\n`;
+          }
+        });
+        contextText += "\n";
       }
-      return data.markdown;
+      
+      // Get heading elements that might provide context
+      const headings = formElement.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      if (headings.length > 0) {
+        contextText += "Form headings:\n";
+        headings.forEach(heading => {
+          contextText += `- ${heading.textContent.trim()}\n`;
+        });
+        contextText += "\n";
+      }
     } else {
-      throw new Error('No markdown content returned from r.jina.ai');
+      // If no form is found, try to get context around the active element
+      if (activeElement) {
+        // Look for nearby headings
+        let parent = activeElement.parentElement;
+        const headings = [];
+        
+        // Go up to 5 levels up to find headings
+        for (let i = 0; i < 5 && parent; i++) {
+          const nearbyHeadings = parent.querySelectorAll('h1, h2, h3, h4, h5, h6');
+          nearbyHeadings.forEach(h => headings.push(h.textContent.trim()));
+          parent = parent.parentElement;
+        }
+        
+        if (headings.length > 0) {
+          contextText += "Nearby headings:\n";
+          [...new Set(headings)].forEach(h => {
+            contextText += `- ${h}\n`;
+          });
+          contextText += "\n";
+        }
+        
+        // Get any labels associated with the active element
+        if (activeElement.id) {
+          const associatedLabel = document.querySelector(`label[for="${activeElement.id}"]`);
+          if (associatedLabel) {
+            contextText += `Field label: ${associatedLabel.textContent.trim()}\n\n`;
+          }
+        }
+        
+        // Check for aria-label on the element itself
+        if (activeElement.getAttribute('aria-label')) {
+          contextText += `Field aria-label: ${activeElement.getAttribute('aria-label')}\n\n`;
+        }
+        
+        // Check for placeholder
+        if (activeElement.placeholder) {
+          contextText += `Field placeholder: ${activeElement.placeholder}\n\n`;
+        }
+      }
     }
+    
+    return contextText;
   } catch (error) {
-    console.error('Error using r.jina.ai:', error);
-    throw error; // Let the caller handle the fallback
+    console.error('Error extracting form context:', error);
+    return "Could not extract detailed form context.";
   }
 }
 
@@ -310,21 +363,30 @@ function cleanPageContent(content) {
 /**
  * Creates an enhanced prompt for Claude with context and instructions
  * @param {string} question The user's original question
- * @param {string} pageContext The captured page context
+ * @param {Object} pageContext The captured page context (text and screenshot)
  * @returns {string} The enhanced prompt
  */
 function createEnhancedPrompt(question, pageContext) {
   // Create a prompt that gives Claude context and clear instructions
-  const prompt = `I need help filling out a form field. I'll provide the context from the current webpage and my specific question.
-
-## Current Webpage Context:
-${pageContext || "No context available from the current page."}
+  let prompt = `I need help filling out a form field. I'll provide context from the current webpage and my specific question.`;
+  
+  // Add screenshot if available
+  if (pageContext.screenshotData) {
+    prompt += `\n\n## Screenshot of Current Page:
+<image>
+${pageContext.screenshotData}
+</image>`;
+  }
+  
+  // Add text context
+  prompt += `\n\n## Current Webpage Context:
+${pageContext.textContext || "No text context available from the current page."}
 
 ## My Question:
 ${question}
 
 ## Instructions:
-1. Analyze the webpage context to understand what I'm filling out.
+1. Look at the screenshot and webpage context to understand what I'm filling out.
 2. Provide a direct, focused answer to my question based on the context.
 3. IMPORTANT: Answer ONLY the question without any introductions, explanations, or conclusions.
 4. Do not include phrases like "Based on the context" or "According to the webpage".
