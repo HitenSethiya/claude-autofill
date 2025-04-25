@@ -1,4 +1,11 @@
 // Main content script that runs on webpages
+
+// Configuration for context capture
+const CONTEXT_CONFIG = {
+  maxPageContentLength: 50000, // Maximum characters of page content to send
+  r_jina_api: "https://r.jina.ai/api",
+  summaryMaxLength: 2000, // Max length for page summaries
+};
 const FORM_ELEMENTS = [
   'input[type="text"]', 
   'textarea', 
@@ -495,11 +502,21 @@ async function handleClaudeButtonClick() {
       return; // User cancelled
     }
     
-    // Send the question to Claude via background script
+    // Capture the current page context
+    const pageContext = await capturePageContext();
+    
+    // Generate a descriptive title based on the question
+    const conversationTitle = generateConversationTitle(question);
+    
+    // Create an enhanced prompt with context
+    const enhancedPrompt = createEnhancedPrompt(question, pageContext);
+    
+    // Send the enhanced question to Claude via background script
     const response = await sendMessageToBackground({
       action: 'askClaude',
-      question: question,
-      projectId: settings.defaultProject
+      question: enhancedPrompt,
+      projectId: settings.defaultProject,
+      conversationTitle: conversationTitle
     });
     
     if (response && response.answer) {

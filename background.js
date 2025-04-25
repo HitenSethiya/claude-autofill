@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       
     case 'askClaude':
       console.log(`Received message from ${sender.tab ? 'content script' : 'popup'}:`, request);
-      askClaude(request.question, request.projectId).then(sendResponse);
+      askClaude(request.question, request.projectId, request.conversationTitle).then(sendResponse);
       return true;
   }
 });
@@ -106,7 +106,7 @@ async function getProjects() {
 }
 
 // Ask Claude a question and get the response
-async function askClaude(question, projectId) {
+async function askClaude(question, projectId, conversationTitle) {
   try {
     // Get organization ID if not already available
     if (!currentOrgId) {
@@ -121,7 +121,9 @@ async function askClaude(question, projectId) {
     // Create a new conversation if no project ID is specified or if it's the default project
     let conversationId = null;
     let newConversationCreated = false;
-    let conversationName = `Form Assistant - ${new Date().toLocaleString()}`;
+    
+    // Use the provided conversation title or fallback to a generic one
+    let conversationName = conversationTitle || `Form Assistant - ${new Date().toLocaleString()}`;
 
     conversationId = await createConversation(currentOrgId, projectId, conversationName);
     newConversationCreated = true;
@@ -252,7 +254,7 @@ async function sendMessage(orgId, conversationId, message) {
     },
     credentials: 'include',
     body: JSON.stringify({
-      "prompt": "Answer this:" + message,
+      "prompt": message,
       "parent_message_uuid": "00000000-0000-4000-8000-000000000000",
       "timezone": "Asia/Calcutta",
       "personalized_styles": [
