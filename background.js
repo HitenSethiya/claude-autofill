@@ -160,9 +160,6 @@ async function askClaude(question, projectId, conversationTitle) {
     // Send the message to Claude
     const response = await sendMessage(currentOrgId, conversationId, question);
 
-    // Sleep for 5 seconds before proceeding
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
     // Generate the conversation URL
     const conversationUrl = `${CLAUDE_API.BASE_URL}${CLAUDE_API.CHAT.replace('{orgId}', currentOrgId).replace('{chatId}', conversationId)}`;
     console.log('Conversation URL:', conversationUrl);
